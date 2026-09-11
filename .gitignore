@@ -13,6 +13,7 @@ env/
 output/*
 !output/*.json
 *.csv
+!fares.csv
 *.png
 emt_response.json
 emt_request.json
