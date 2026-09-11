@@ -44,14 +44,14 @@ export default function CollectionMonitorScreen() {
   if (loading) return null;
 
   const steps = [
-    "Scheduler Trigger",
+    "Collection Trigger",
     "Headless Browser Launch",
     "Target Site Navigation",
-    "Network Interception (API)",
-    "JSON Parser Decoder",
-    "Data Validation Engine",
-    "IQR Outlier Filter",
-    "Jevons Index Calculation"
+    "Network Interception",
+    "JSON Parsing & Decoding",
+    "Data Cleaning & Validation",
+    "IQR Outlier Detection",
+    "Index Calculation & Persistence"
   ];
 
   const formatDate = (ds: string) => ds ? new Date(ds).toLocaleString() : "N/A";

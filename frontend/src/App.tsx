@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, NavLink, useLocation } from "react-router-dom";
 import {
-  BarChart,
-  LineChart,
+  PieChart,
   LayoutDashboard,
   Map,
   Activity,
@@ -14,7 +13,7 @@ import {
 import OverviewScreen from "./screens/OverviewScreen";
 import ExplorerScreen from "./screens/ExplorerScreen";
 import RouteIntelligenceScreen from "./screens/RouteIntelligenceScreen";
-import AnalyticsScreen from "./screens/AnalyticsScreen";
+import InsightsScreen from "./screens/InsightsScreen";
 import DataQualityScreen from "./screens/DataQualityScreen";
 import CollectionMonitorScreen from "./screens/CollectionMonitorScreen";
 import MethodologyScreen from "./screens/MethodologyScreen";
@@ -22,12 +21,15 @@ import APIScreen from "./screens/APIScreen";
 import clsx from "clsx";
 
 function Sidebar() {
-  const links = [
+  const mainLinks = [
     { name: "Overview", to: "/", icon: <LayoutDashboard size={20} /> },
-    { name: "Airfare Explorer", to: "/explorer", icon: <Search size={20} /> },
+    { name: "Explore Fares", to: "/explorer", icon: <Search size={20} /> },
     { name: "Route Intelligence", to: "/routes", icon: <Map size={20} /> },
-    { name: "Analytics", to: "/analytics", icon: <BarChart size={20} /> },
+    { name: "Insights", to: "/insights", icon: <PieChart size={20} /> },
     { name: "Data Quality", to: "/quality", icon: <Database size={20} /> },
+  ];
+
+  const systemLinks = [
     { name: "Collection Monitor", to: "/monitor", icon: <Activity size={20} /> },
     { name: "Methodology", to: "/methodology", icon: <BookOpen size={20} /> },
     { name: "API", to: "/api-docs", icon: <Code size={20} /> },
@@ -39,12 +41,30 @@ function Sidebar() {
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           <span className="text-emerald-400">✈</span> Airfare India
         </h2>
-        <div className="text-xs text-slate-500 uppercase font-semibold mt-1 tracking-wider">
-          Statistical Intelligence
+        <div className="text-xs text-slate-400 uppercase font-semibold mt-1 tracking-wider">
+          Price Intelligence System
         </div>
       </div>
-      <nav className="flex-1 py-4">
-        {links.map((link) => (
+      <nav className="flex-1 py-4 overflow-y-auto">
+        <div className="px-6 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Main</div>
+        {mainLinks.map((link) => (
+          <NavLink
+            key={link.to}
+            to={link.to}
+            className={({ isActive }) =>
+              clsx(
+                "flex items-center gap-3 px-6 py-3 text-sm font-medium transition-colors",
+                isActive ? "bg-slate-800 text-white border-l-4 border-emerald-400" : "hover:bg-slate-800 hover:text-white border-l-4 border-transparent"
+              )
+            }
+          >
+            {link.icon}
+            {link.name}
+          </NavLink>
+        ))}
+
+        <div className="px-6 mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-500">System</div>
+        {systemLinks.map((link) => (
           <NavLink
             key={link.to}
             to={link.to}
@@ -137,7 +157,7 @@ export default function App() {
               <Route path="/" element={<OverviewScreen />} />
               <Route path="/explorer" element={<ExplorerScreen />} />
               <Route path="/routes" element={<RouteIntelligenceScreen />} />
-              <Route path="/analytics" element={<AnalyticsScreen />} />
+              <Route path="/insights" element={<InsightsScreen />} />
               <Route path="/quality" element={<DataQualityScreen />} />
               <Route path="/monitor" element={<CollectionMonitorScreen />} />
               <Route path="/methodology" element={<MethodologyScreen />} />
