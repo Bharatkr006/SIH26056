@@ -1,0 +1,60 @@
+{
+  "generated_at": "2026-09-11T18:34:54.397143",
+  "total_collections": 4,
+  "results": {
+    "DEL-BOM": {
+      "T+1": {
+        "jevons_index": 105.9916387556522,
+        "median_fare": 6898.0,
+        "sample_size": 51,
+        "baseline_fare": 6500.0,
+        "pipeline": {
+          "raw_segments": 145,
+          "cleaned_flights": 57,
+          "filtered_outliers": 6,
+          "final_dataset": 51
+        }
+      },
+      "T+7": {
+        "jevons_index": 106.13567808895962,
+        "median_fare": 6949.0,
+        "sample_size": 44,
+        "baseline_fare": 6500.0,
+        "pipeline": {
+          "raw_segments": 160,
+          "cleaned_flights": 57,
+          "filtered_outliers": 13,
+          "final_dataset": 44
+        }
+      }
+    },
+    "DEL-BLR": {
+      "T+1": {
+        "jevons_index": 110.80014803520324,
+        "median_fare": 9300.0,
+        "sample_size": 27,
+        "baseline_fare": 8500.0,
+        "pipeline": {
+          "raw_segments": 149,
+          "cleaned_flights": 36,
+          "filtered_outliers": 9,
+          "final_dataset": 27
+        }
+      }
+    },
+    "BOM-BLR": {
+      "T+15": {
+        "jevons_index": 134.60833242678888,
+        "median_fare": 7377.0,
+        "sample_size": 24,
+        "baseline_fare": 5500.0,
+        "pipeline": {
+          "raw_segments": 119,
+          "cleaned_flights": 30,
+          "filtered_outliers": 6,
+          "final_dataset": 24
+        }
+      }
+    }
+  }
+}

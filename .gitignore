@@ -10,7 +10,8 @@ ENV/
 env/
 
 # Output files
-output/
+output/*
+!output/*.json
 *.csv
 *.png
 emt_response.json
