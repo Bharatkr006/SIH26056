@@ -39,6 +39,9 @@ def run_scraper_task():
         else:
             python_exe = os.path.join(base_dir, ".venv", "bin", "python")
 
+        if not os.path.exists(python_exe):
+            python_exe = sys.executable
+
         scraper_path = os.path.join(base_dir, "scraper.py")
 
         # Run the scraper with absolute paths
@@ -252,4 +255,5 @@ if os.path.exists("frontend/dist"):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 7860))
+    uvicorn.run(app, host="0.0.0.0", port=port)
