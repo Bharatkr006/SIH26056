@@ -11,9 +11,14 @@ export default function CollectionMonitorScreen() {
     Promise.all([
       fetch("/api/v1/status").then(r => r.json()),
       fetch("/api/v1/pipeline").then(r => r.json())
-    ]).then(([st, pl]) => {
+    ])
+    .then(([st, pl]) => {
       setStatus(st);
       setPipelineData(pl);
+      setLoading(false);
+    })
+    .catch(err => {
+      console.error("Failed to fetch pipeline status", err);
       setLoading(false);
     });
   };

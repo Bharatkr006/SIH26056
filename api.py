@@ -32,13 +32,21 @@ def run_scraper_task():
         import os
         import sys
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        python_exe = os.path.join(base_dir, ".venv", "Scripts", "python.exe")
+
+        # Cross-platform virtual environment python path
+        if os.name == "nt":
+            python_exe = os.path.join(base_dir, ".venv", "Scripts", "python.exe")
+        else:
+            python_exe = os.path.join(base_dir, ".venv", "bin", "python")
+
         scraper_path = os.path.join(base_dir, "scraper.py")
 
         # Run the scraper with absolute paths
         subprocess.run([python_exe, scraper_path], cwd=base_dir, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Scraper failed with exit code {e.returncode}")
+    except Exception as e:
+        print(f"Failed to start scraper: {e}")
     finally:
         is_collecting = False
 
@@ -48,7 +56,7 @@ def get_status():
     try:
         data = get_latest_run_data()
         timestamp = data.get("stats", {}).get("timestamp", None)
-    except HTTPException:
+    except Exception:
         timestamp = None
 
     return {
