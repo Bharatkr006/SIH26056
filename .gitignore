@@ -16,6 +16,7 @@ output/
 emt_response.json
 emt_request.json
 *.txt
+!requirements.txt
 current_state.png
 test_exec.py
 
