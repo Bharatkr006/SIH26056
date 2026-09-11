@@ -103,6 +103,13 @@ def get_pipeline():
         "excluded": (pipeline.get("raw_segments", 0) - pipeline.get("final_dataset", 0))
     }
 
+@app.get("/api/v1/summary")
+def get_summary():
+    if not os.path.exists(config.SUMMARY_JSON_FILE):
+        raise HTTPException(status_code=404, detail="No summary data available")
+    with open(config.SUMMARY_JSON_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 @app.post("/api/v1/collect")
 def start_collection(background_tasks: BackgroundTasks):
     global is_collecting

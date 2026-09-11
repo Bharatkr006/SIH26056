@@ -1,16 +1,21 @@
 """
-SIH AIRFARE PROTOTYPE: END-TO-END PIPELINE
-Route: DEL -> BOM (Delhi to Mumbai)
-Source: EaseMyTrip (Direct Booking Engine & Live AirBus API)
-Lead Time: T+7 (7 Days in advance)
+SIH AIRFARE PROTOTYPE: MULTI-ROUTE / MULTI-LEAD-TIME PIPELINE
+Supports configurable routes and lead times via config.py
+Routes: DEL→BOM, DEL→BLR, BOM→BLR
+Lead Times: T+1, T+7, T+15
 
 Pipeline stages:
-1. Scraper: Headless automated browser queries DEL-BOM for T+7, captures API response.
+1. Scraper: Headless automated browser queries route for specified lead time, captures API response.
 2. Cleaner: Parses flights, standardizes airlines, handles 0-fares and non-direct flights.
 3. Filter: Removes statistical outliers (IQR fencing).
-4. Index: Computes true Route Geometric Mean (Jevons Index) against a fixed baseline.
-5. Record: Persists raw and cleaned data.
+4. Index: Computes true Route Geometric Mean (Jevons Index) against route-specific baseline.
+5. Record: Persists raw and cleaned data with route/lead-time tagging.
 6. Present: Terminal report, matplotlib charts (optional), generated HTML report.
+
+CLI Usage:
+    python scraper.py                  # Run all routes × all lead times (3×3 matrix)
+    python scraper.py DEL-BOM 7        # Run single route with lead time 7
+    python scraper.py DEL-BLR 15       # Run single route with lead time 15
 """
 
 import os
@@ -20,6 +25,7 @@ import csv
 import json
 from datetime import datetime, timedelta
 from playwright.sync_api import sync_playwright
+import argparse
 
 import config
 
@@ -29,17 +35,6 @@ if sys.stdout.encoding != 'utf-8':
         sys.stdout.reconfigure(encoding='utf-8')
     except Exception:
         pass
-
-# Target Travel Date: T+7
-TARGET_DATE = datetime.now() + timedelta(days=config.LEAD_DAYS)
-DATE_STR_SLASH = TARGET_DATE.strftime("%d/%m/%Y")
-DATE_STR_ISO = TARGET_DATE.strftime("%Y-%m-%d")
-
-SEARCH_URL = (
-    f"https://flight.easemytrip.com/FlightList/Index?"
-    f"srch={config.ORIGIN}-Delhi-India|{config.DESTINATION}-Mumbai-India|{DATE_STR_SLASH}"
-    f"&px=1-0-0&cbn=0&ar=undefined&isSplit=false&isFlexi=false"
-)
 
 # ANSI terminal colors (if supported, else degrading gracefully)
 C_CYAN = '\033[96m'
@@ -51,13 +46,39 @@ C_R = '\033[0m' # Reset
 C_B = '\033[1m' # Bold
 
 # ==============================================================================
-# STAGE 1: SCRAPER
+# STAGE 1: SCRAPER (Parameterized)
 # ==============================================================================
-def scrape_live_flights():
+def scrape_live_flights(route_cfg, lead_days):
+    """
+    Scrape live flight data for a specific route and lead time.
+
+    Args:
+        route_cfg: dict with keys {origin, destination, city_origin, city_dest}
+        lead_days: int, days in advance (e.g., 1, 7, 15)
+
+    Returns:
+        dict: Raw API response from EaseMyTrip
+    """
+    origin = route_cfg["origin"]
+    destination = route_cfg["destination"]
+    city_origin = route_cfg["city_origin"]
+    city_dest = route_cfg["city_dest"]
+
+    target_date = datetime.now() + timedelta(days=lead_days)
+    date_str_slash = target_date.strftime("%d/%m/%Y")
+    date_str_iso = target_date.strftime("%Y-%m-%d")
+
+    search_url = (
+        f"https://flight.easemytrip.com/FlightList/Index?"
+        f"srch={origin}-{city_origin}|{destination}-{city_dest}|{date_str_slash}"
+        f"&px=1-0-0&cbn=0&ar=undefined&isSplit=false&isFlexi=false"
+    )
+
     print(f"\n{C_CYAN}{C_B}===== STAGE 1: SCRAPING LIVE FARE DATA ====={C_R}")
     print(f"[*] Source     : {config.SOURCE_NAME}")
-    print(f"[*] Route      : {config.ORIGIN} -> {config.DESTINATION}")
-    print(f"[*] Advance    : T+{config.LEAD_DAYS} days ({DATE_STR_ISO})")
+    print(f"[*] Route      : {origin} → {destination}")
+    print(f"[*] Advance    : T+{lead_days} days ({date_str_iso})")
+    print(f"[*] URL        : {search_url[:80]}...")
 
     print("\n[>] Launching headless Playwright browser...")
 
@@ -73,7 +94,7 @@ def scrape_live_flights():
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
         )
 
-        # Apply stealth to bypass bot detection (EaseMyTrip recently added this)
+        # Apply stealth to bypass bot detection
         context.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined
@@ -83,7 +104,6 @@ def scrape_live_flights():
         page = context.new_page()
 
         def handle_response(response):
-            # EaseMyTrip changed their API domain and URL endpoint slightly
             if "airbus_new" in response.url.lower() or "airavail" in response.url.lower():
                 try:
                     data = response.json()
@@ -95,7 +115,7 @@ def scrape_live_flights():
         page.on("response", handle_response)
 
         try:
-            page.goto(SEARCH_URL, wait_until="load", timeout=45000)
+            page.goto(search_url, wait_until="load", timeout=45000)
         except Exception:
             pass
 
@@ -108,18 +128,36 @@ def scrape_live_flights():
         browser.close()
 
     if not captured_payload:
-        if os.path.exists("emt_response.json"):
-            print(f"    {C_YELLOW}[!] Network timeout. Loading cached live data (emt_response.json)...{C_R}")
-            with open("emt_response.json", "r", encoding="utf-8") as f:
+        cache_file = f"emt_response_{origin}_{destination}_T{lead_days}.json"
+        if os.path.exists(cache_file):
+            print(f"    {C_YELLOW}[!] Network timeout. Loading cached data ({cache_file})...{C_R}")
+            with open(cache_file, "r", encoding="utf-8") as f:
                 return json.load(f)
-        raise RuntimeError("Failed to capture live flight data from network.")
+        raise RuntimeError(f"Failed to capture live flight data from network for {origin}→{destination} T+{lead_days}.")
 
     return captured_payload[0]
 
 # ==============================================================================
-# STAGE 2: CLEANING & VALIDATION
+# STAGE 2: CLEANING & VALIDATION (Parameterized)
 # ==============================================================================
-def clean_flight_data(raw_data):
+def clean_flight_data(raw_data, route_cfg, lead_days):
+    """
+    Parse and clean raw API response into structured flight records.
+
+    Args:
+        raw_data: dict from EaseMyTrip API
+        route_cfg: dict with origin/destination info
+        lead_days: int, lead time in days
+
+    Returns:
+        tuple: (clean_records list, raw_segment_count int)
+    """
+    origin = route_cfg["origin"]
+    destination = route_cfg["destination"]
+
+    target_date = datetime.now() + timedelta(days=lead_days)
+    date_str_iso = target_date.strftime("%Y-%m-%d")
+
     print(f"\n{C_CYAN}{C_B}===== STAGE 2: DATA CLEANING ====={C_R}")
 
     flt_details = raw_data.get("dctFltDtl", {})
@@ -148,8 +186,8 @@ def clean_flight_data(raw_data):
                     airline_code = flt.get("AC", "").strip()
                     airline_full = airline_name_map.get(airline_code, airline_code or "Other")
                     flight_num = f"{airline_code}-{flt.get('FN', '').strip()}"
-                    origin = flt.get("OG", "").strip()
-                    dest = flt.get("DT", "").strip()
+                    flt_origin = flt.get("OG", "").strip()
+                    flt_dest = flt.get("DT", "").strip()
                     dep_time = flt.get("DTM", "").strip()
                     arr_time = flt.get("ATM", "").strip()
                     duration = flt.get("DUR", "").strip() or b.get("JyTm", "").strip()
@@ -157,7 +195,7 @@ def clean_flight_data(raw_data):
                     fare_class = flt.get("FCLS", "Standard").strip()
 
                     # Filter non-direct segments
-                    if origin != config.ORIGIN or dest != config.DESTINATION:
+                    if flt_origin != origin or flt_dest != destination:
                         skipped_records += 1
                         continue
 
@@ -178,12 +216,14 @@ def clean_flight_data(raw_data):
                         status = "Sold Out"
 
                     clean_records.append({
+                        "run_id": None, # Will be set during orchestration
                         "timestamp": datetime.now().isoformat(timespec="seconds"),
                         "source": config.SOURCE_NAME,
-                        "origin": origin,
-                        "destination": dest,
-                        "lead_time": f"T+{config.LEAD_DAYS}",
-                        "travel_date": DATE_STR_ISO,
+                        "route": f"{origin}-{destination}",
+                        "origin": flt_origin,
+                        "destination": flt_dest,
+                        "lead_time": f"T+{lead_days}",
+                        "travel_date": date_str_iso,
                         "airline": airline_full,
                         "flight_number": flight_num,
                         "departure_time": dep_time,
@@ -217,6 +257,7 @@ def clean_flight_data(raw_data):
 # STAGE 3: OUTLIER FILTERING
 # ==============================================================================
 def filter_outliers_iqr(flights):
+    """Remove statistical outliers using IQR fencing."""
     print(f"\n{C_CYAN}{C_B}===== STAGE 3: OUTLIER FILTERING (IQR) ====={C_R}")
     if not flights:
         return flights, []
@@ -254,28 +295,38 @@ def filter_outliers_iqr(flights):
     return kept, removed
 
 # ==============================================================================
-# STAGE 4: INDEX CALCULATION (Jevons Price Index)
+# STAGE 4: INDEX CALCULATION (Jevons Price Index) - Route-Specific Baseline
 # ==============================================================================
-def get_baseline_fare(current_median):
-    """Loads fixed baseline, or falls back to default reference."""
-    if os.path.exists(config.BASELINE_FILE):
-        try:
-            with open(config.BASELINE_FILE, "r") as f:
-                data = json.load(f)
-                return float(data.get("baseline_fare", config.DEFAULT_BASELINE_FARE))
-        except Exception:
-            pass
+def calculate_airfare_index(flights, route_cfg):
+    """
+    Compute Jevons Price Index using route-specific baseline from config.
 
-    # Default to fixed external baseline (e.g. 6,500.0)
-    return config.DEFAULT_BASELINE_FARE
+    Args:
+        flights: list of flight records
+        route_cfg: dict with origin/destination
 
+    Returns:
+        dict: Statistics including jevons_index, median_fare, etc.
+    """
+    origin = route_cfg["origin"]
+    destination = route_cfg["destination"]
+    route_key = f"{origin}-{destination}"
 
-def calculate_airfare_index(flights):
     print(f"\n{C_CYAN}{C_B}===== STAGE 4: AIRFARE INDEX COMPUTATION (JEVONS) ====={C_R}")
 
     if not flights:
-        print("[!] No flight data available for index calculation.")
-        return None
+        print(f"[!] No flight data available for index calculation on route {route_key}.")
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "route": route_key,
+            "sample_size": 0,
+            "min_fare": None,
+            "max_fare": None,
+            "median_fare": None,
+            "arithmetic_mean": None,
+            "baseline_fare": config.BASELINES.get(route_key, config.DEFAULT_BASELINE_FARE),
+            "jevons_index": None
+        }
 
     fares = [f["total_fare"] for f in flights if f["status"] == "Available"]
     if not fares:
@@ -289,13 +340,14 @@ def calculate_airfare_index(flights):
     median_fare = sorted_fares[n // 2] if n % 2 != 0 else (sorted_fares[n // 2 - 1] + sorted_fares[n // 2]) / 2.0
     arithmetic_mean = sum(fares) / n
 
-    # STAGE 4 FIX: Use a fixed baseline instead of the current median
-    fixed_baseline = get_baseline_fare(median_fare)
+    # Use route-specific baseline from config.BASELINES
+    fixed_baseline = config.BASELINES.get(route_key, config.DEFAULT_BASELINE_FARE)
 
     # Proper Jevons Index: exp((1/n) * sum(ln(P_i / P_base))) * 100
     log_relatives_sum = sum(math.log(p / fixed_baseline) for p in fares)
     jevons_index = math.exp(log_relatives_sum / n) * 100.0
 
+    print(f"[*] Route                : {route_key}")
     print(f"[*] Sample Size Evaluated: {n}")
     print(f"[*] Minimum Fare         : Rs. {min_fare:,.2f}")
     print(f"[*] Maximum Fare         : Rs. {max_fare:,.2f}")
@@ -334,6 +386,7 @@ def calculate_airfare_index(flights):
 
     return {
         "timestamp": datetime.now().isoformat(),
+        "route": route_key,
         "sample_size": n,
         "min_fare": min_fare,
         "max_fare": max_fare,
@@ -347,6 +400,7 @@ def calculate_airfare_index(flights):
 # TERMINAL TABLE OUTPUT
 # ==============================================================================
 def print_flight_table(flights, limit=12):
+    """Print formatted flight table preview."""
     print(f"\n{C_CYAN}{C_B}===== FLIGHT LEDGER PREVIEW ====={C_R}")
 
     print("┌──────────────┬──────────────────┬───────┬───────┬───────┬────────────┐")
@@ -368,46 +422,70 @@ def print_flight_table(flights, limit=12):
         print(f"... and {len(flights) - limit} more flights logged.")
 
 # ==============================================================================
-# MAIN PIPELINE
+# SINGLE ROUTE/LEAD-TIME PIPELINE RUNNER
 # ==============================================================================
-def main():
-    print(f"\n{C_B}{C_BLUE}{'#' * 70}")
-    print("✈️ SIH AIRFARE MONITORING SYSTEM - PIPELINE RUNNER".center(70))
-    print(f"{'#' * 70}{C_R}")
+def run_single_collection(route_cfg, lead_days, run_id):
+    """
+    Execute full pipeline for one route and one lead time.
+
+    Args:
+        route_cfg: dict with route information
+        lead_days: int, lead time in days
+        run_id: str, unique run identifier for this batch
+
+    Returns:
+        dict: Result summary with stats, pipeline counts, flights, outliers
+    """
+    origin = route_cfg["origin"]
+    destination = route_cfg["destination"]
+    route_key = f"{origin}-{destination}"
+
+    print(f"\n{C_B}{C_BLUE}{'=' * 70}")
+    print(f"✈️  PIPELINE: {route_key} T+{lead_days}".center(70))
+    print(f"{'=' * 70}{C_R}")
 
     # Stage 1: Scrape
-    raw_data = scrape_live_flights()
+    raw_data = scrape_live_flights(route_cfg, lead_days)
 
     # Stage 2: Clean
-    clean_flights, raw_segment_count = clean_flight_data(raw_data)
+    clean_flights, raw_segment_count = clean_flight_data(raw_data, route_cfg, lead_days)
     if not clean_flights:
-        print("[!] Error: No valid flights found after cleaning.")
-        sys.exit(1)
+        print(f"[!] Warning: No valid flights found after cleaning for {route_key} T+{lead_days}.")
+        return {
+            "route": route_key,
+            "lead_time": f"T+{lead_days}",
+            "run_id": run_id,
+            "stats": calculate_airfare_index([], route_cfg),
+            "pipeline": {
+                "raw_segments": raw_segment_count,
+                "cleaned_flights": 0,
+                "filtered_outliers": 0,
+                "final_dataset": 0
+            },
+            "flights": [],
+            "outliers": []
+        }
 
     # Stage 3: Filter Outliers (IQR)
     filtered_flights, removed_flights = filter_outliers_iqr(clean_flights)
     active_dataset = filtered_flights if filtered_flights else clean_flights
 
+    # Inject run_id into records
+    for f in active_dataset:
+        f["run_id"] = run_id
+    for f in removed_flights:
+        f["run_id"] = run_id
+
     # Preview Table
     print_flight_table(active_dataset, limit=10)
 
     # Stage 4: Index
-    stats = calculate_airfare_index(active_dataset)
+    stats = calculate_airfare_index(active_dataset, route_cfg)
 
-    # Save CSV
-    file_exists = os.path.exists(config.CSV_FILE)
-    if active_dataset:
-        with open(config.CSV_FILE, "a", newline="", encoding="utf-8") as f:
-            if active_dataset:
-                writer = csv.DictWriter(f, fieldnames=list(active_dataset[0].keys()))
-                if not file_exists:
-                    writer.writeheader()
-                for row in active_dataset:
-                    writer.writerow(row)
-        print(f"[OK] Appended {len(active_dataset)} records to {config.CSV_FILE}")
-
-    # Save JSON context for generator/chart scripts
-    run_state = {
+    return {
+        "route": route_key,
+        "lead_time": f"T+{lead_days}",
+        "run_id": run_id,
         "stats": stats,
         "pipeline": {
             "raw_segments": raw_segment_count,
@@ -419,24 +497,175 @@ def main():
         "outliers": removed_flights
     }
 
+# ==============================================================================
+# PERSISTENCE: Save results to CSV and JSON
+# ==============================================================================
+def save_results(all_results):
+    """
+    Persist all collection results to CSV and structured JSON files.
+
+    Args:
+        all_results: list of result dicts from run_single_collection
+    """
+    print(f"\n{C_CYAN}{C_B}===== PERSISTING RESULTS ====={C_R}")
+
+    # Save CSV (append mode for all flights across all runs)
+    all_flights = []
+    for result in all_results:
+        all_flights.extend(result["flights"])
+
+    if all_flights:
+        file_exists = os.path.exists(config.CSV_FILE)
+        with open(config.CSV_FILE, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(all_flights[0].keys()))
+            if not file_exists:
+                writer.writeheader()
+            for row in all_flights:
+                writer.writerow(row)
+        print(f"[OK] Appended {len(all_flights)} records to {config.CSV_FILE}")
+
+    # Save legacy latest_run.json (backward compatible - use first result or DEL-BOM T+7 if exists)
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-    with open(config.LAST_RUN_RESULTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(run_state, f, indent=2)
 
-    # Next stages: Trigger reporting scripts here...
-    try:
-        import generate_chart
-        generate_chart.run()
-    except Exception as e:
-        print(f"[!] Failed to generate chart: {e}")
+    # Find DEL-BOM T+7 for backward compatibility, else use first result
+    legacy_result = None
+    for r in all_results:
+        if r["route"] == "DEL-BOM" and r["lead_time"] == "T+7":
+            legacy_result = r
+            break
+    if not legacy_result and all_results:
+        legacy_result = all_results[0]
 
-    try:
-        import generate_report
-        generate_report.run()
-    except Exception as e:
-        print(f"[!] Failed to generate HTML report: {e}")
+    if legacy_result:
+        with open(config.LAST_RUN_RESULTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(legacy_result, f, indent=2)
+        print(f"[OK] Saved legacy format to {config.LAST_RUN_RESULTS_FILE}")
 
-    print(f"\n{C_GREEN}{C_B}[+] DATA PIPELINE COMPLETE. JEVONS: {stats['jevons_index']:.2f}{C_R}\n")
+    # Save new summary.json (structured by route and lead time)
+    summary = {
+        "generated_at": datetime.now().isoformat(),
+        "total_collections": len(all_results),
+        "results": {}
+    }
+
+    for result in all_results:
+        route = result["route"]
+        lead_time = result["lead_time"]
+        if route not in summary["results"]:
+            summary["results"][route] = {}
+        summary["results"][route][lead_time] = {
+            "jevons_index": result["stats"]["jevons_index"],
+            "median_fare": result["stats"]["median_fare"],
+            "sample_size": result["stats"]["sample_size"],
+            "baseline_fare": result["stats"]["baseline_fare"],
+            "pipeline": result["pipeline"]
+        }
+
+    with open(config.SUMMARY_JSON_FILE, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    print(f"[OK] Saved structured summary to {config.SUMMARY_JSON_FILE}")
+
+# ==============================================================================
+# MAIN ENTRY POINT
+# ==============================================================================
+def main():
+    """Main entry point with CLI argument parsing."""
+    parser = argparse.ArgumentParser(
+        description="SIH Airfare Multi-Route Multi-Lead-Time Data Collection Pipeline"
+    )
+    parser.add_argument(
+        "route",
+        nargs="?",
+        default="all",
+        help="Route in format ORIGIN-DESTINATION (e.g., DEL-BOM) or 'all' for all routes"
+    )
+    parser.add_argument(
+        "lead_days",
+        nargs="?",
+        type=int,
+        default=None,
+        help="Lead time in days (e.g., 1, 7, 15) or omit to run all lead times"
+    )
+
+    args = parser.parse_args()
+
+    print(f"\n{C_B}{C_BLUE}{'#' * 70}")
+    print("✈️ SIH AIRFARE MONITORING SYSTEM - MULTI-ROUTE PIPELINE".center(70))
+    print(f"{'#' * 70}{C_R}")
+
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Determine which routes and lead times to run
+    if args.route == "all":
+        target_routes = config.ROUTES
+    else:
+        # Find matching route
+        route_parts = args.route.split("-")
+        if len(route_parts) != 2:
+            print(f"{C_RED}[ERROR] Invalid route format. Use ORIGIN-DESTINATION (e.g., DEL-BOM){C_R}")
+            sys.exit(1)
+
+        origin_query, dest_query = route_parts
+        target_routes = [
+            r for r in config.ROUTES
+            if r["origin"] == origin_query and r["destination"] == dest_query
+        ]
+
+        if not target_routes:
+            print(f"{C_RED}[ERROR] Route {args.route} not found in config.ROUTES{C_R}")
+            sys.exit(1)
+
+    if args.lead_days is not None:
+        target_lead_times = [args.lead_days]
+    else:
+        target_lead_times = config.LEAD_TIMES
+
+    print(f"[*] Run ID        : {run_id}")
+    target_route_names = [f"{r['origin']}-{r['destination']}" for r in target_routes]
+    print(f"[*] Target Routes : {', '.join(target_route_names)}")
+    print(f"[*] Lead Times    : {', '.join([f'T+{lt}' for lt in target_lead_times])}")
+    print(f"[*] Total Jobs    : {len(target_routes) * len(target_lead_times)}")
+
+    all_results = []
+
+    # Sequential execution (rate-limiting friendly)
+    for route_cfg in target_routes:
+        for lead_days in target_lead_times:
+            try:
+                result = run_single_collection(route_cfg, lead_days, run_id)
+                all_results.append(result)
+
+                # Rate limiting: 3 second pause between scrapes
+                import time
+                time.sleep(3)
+
+            except Exception as e:
+                print(f"{C_RED}[ERROR] Failed to collect {route_cfg['origin']}-{route_cfg['destination']} T+{lead_days}: {e}{C_R}")
+                continue
+
+    # Save all results
+    if all_results:
+        save_results(all_results)
+
+        # Generate visualizations (use legacy result for chart compatibility)
+        try:
+            import generate_chart
+            generate_chart.run()
+        except Exception as e:
+            print(f"[!] Failed to generate chart: {e}")
+
+        try:
+            import generate_report
+            generate_report.run()
+        except Exception as e:
+            print(f"[!] Failed to generate HTML report: {e}")
+
+        print(f"\n{C_GREEN}{C_B}[+] MULTI-ROUTE PIPELINE COMPLETE{C_R}")
+        print(f"    Collected {len(all_results)} route×lead-time combinations")
+        print(f"    Results saved to {config.SUMMARY_JSON_FILE}\n")
+    else:
+        print(f"\n{C_RED}[!] No successful collections. Pipeline incomplete.{C_R}\n")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

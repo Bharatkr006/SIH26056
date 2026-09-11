@@ -36,3 +36,4 @@ frontend/.vite/
 
 # Logs
 *.log
+emt_response_*.json
