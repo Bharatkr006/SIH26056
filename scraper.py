@@ -48,13 +48,14 @@ C_B = '\033[1m' # Bold
 # ==============================================================================
 # STAGE 1: SCRAPER (Parameterized)
 # ==============================================================================
-def scrape_live_flights(route_cfg, lead_days):
+def scrape_live_flights(route_cfg, lead_days, context=None):
     """
     Scrape live flight data for a specific route and lead time.
 
     Args:
         route_cfg: dict with keys {origin, destination, city_origin, city_dest}
         lead_days: int, days in advance (e.g., 1, 7, 15)
+        context: Playwright context (optional, for persistent browser sessions)
 
     Returns:
         dict: Raw API response from EaseMyTrip
@@ -80,28 +81,10 @@ def scrape_live_flights(route_cfg, lead_days):
     print(f"[*] Advance    : T+{lead_days} days ({date_str_iso})")
     print(f"[*] URL        : {search_url[:80]}...")
 
-    print("\n[>] Launching headless Playwright browser...")
-
     captured_payload = []
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--disable-blink-features=AutomationControlled"]
-        )
-        context = browser.new_context(
-            viewport={"width": 1440, "height": 900},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-        )
-
-        # Apply stealth to bypass bot detection
-        context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-        """)
-
-        page = context.new_page()
+    def execute_scrape(ctx):
+        page = ctx.new_page()
 
         def handle_response(response):
             if "airbus_new" in response.url.lower() or "airavail" in response.url.lower():
@@ -115,17 +98,41 @@ def scrape_live_flights(route_cfg, lead_days):
         page.on("response", handle_response)
 
         try:
-            page.goto(search_url, wait_until="load", timeout=45000)
+            # Drop timeout significantly since we reuse context
+            page.goto(search_url, wait_until="load", timeout=25000)
         except Exception:
             pass
 
         # Give the API request a moment to populate if page loading was delayed
-        for _ in range(10):
+        for _ in range(12):
             if captured_payload:
                 break
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(500)
 
-        browser.close()
+        page.close()
+
+    if context:
+        execute_scrape(context)
+    else:
+        print("\n[>] Launching cold headless Playwright browser...")
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"]
+            )
+            ctx = browser.new_context(
+                viewport={"width": 1440, "height": 900},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+            )
+
+            # Apply stealth
+            ctx.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
+            execute_scrape(ctx)
+            browser.close()
 
     if not captured_payload:
         cache_file = f"emt_response_{origin}_{destination}_T{lead_days}.json"
@@ -424,7 +431,7 @@ def print_flight_table(flights, limit=12):
 # ==============================================================================
 # SINGLE ROUTE/LEAD-TIME PIPELINE RUNNER
 # ==============================================================================
-def run_single_collection(route_cfg, lead_days, run_id):
+def run_single_collection(route_cfg, lead_days, run_id, context=None):
     """
     Execute full pipeline for one route and one lead time.
 
@@ -432,6 +439,7 @@ def run_single_collection(route_cfg, lead_days, run_id):
         route_cfg: dict with route information
         lead_days: int, lead time in days
         run_id: str, unique run identifier for this batch
+        context: Playwright context (optional)
 
     Returns:
         dict: Result summary with stats, pipeline counts, flights, outliers
@@ -445,7 +453,7 @@ def run_single_collection(route_cfg, lead_days, run_id):
     print(f"{'=' * 70}{C_R}")
 
     # Stage 1: Scrape
-    raw_data = scrape_live_flights(route_cfg, lead_days)
+    raw_data = scrape_live_flights(route_cfg, lead_days, context=context)
 
     # Stage 2: Clean
     clean_flights, raw_segment_count = clean_flight_data(raw_data, route_cfg, lead_days)
@@ -628,20 +636,43 @@ def main():
 
     all_results = []
 
-    # Sequential execution (rate-limiting friendly)
-    for route_cfg in target_routes:
-        for lead_days in target_lead_times:
-            try:
-                result = run_single_collection(route_cfg, lead_days, run_id)
-                all_results.append(result)
+    print("\n[>] Booting persistent headless browser session...")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"]
+        )
+        ctx = browser.new_context(
+            viewport={"width": 1440, "height": 900},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+        )
+        ctx.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        """)
 
-                # Rate limiting: 3 second pause between scrapes
-                import time
-                time.sleep(3)
+        # Sequential execution (rate-limiting friendly)
+        total_jobs = len(target_routes) * len(target_lead_times)
+        completed = 0
 
-            except Exception as e:
-                print(f"{C_RED}[ERROR] Failed to collect {route_cfg['origin']}-{route_cfg['destination']} T+{lead_days}: {e}{C_R}")
-                continue
+        for route_cfg in target_routes:
+            for lead_days in target_lead_times:
+                try:
+                    completed += 1
+                    print(f"\n{C_YELLOW}[Job {completed}/{total_jobs}]{C_R} Requesting {route_cfg['origin']}→{route_cfg['destination']} T+{lead_days}")
+
+                    result = run_single_collection(route_cfg, lead_days, run_id, context=ctx)
+                    all_results.append(result)
+
+                    # Only throttle if there are more jobs left
+                    if completed < total_jobs:
+                        import time
+                        time.sleep(1.5)
+
+                except Exception as e:
+                    print(f"{C_RED}[ERROR] Failed to collect {route_cfg['origin']}-{route_cfg['destination']} T+{lead_days}: {e}{C_R}")
+                    continue
+
+        browser.close()
 
     # Save all results
     if all_results:
