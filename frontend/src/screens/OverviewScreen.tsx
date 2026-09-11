@@ -92,11 +92,11 @@ export default function OverviewScreen() {
     <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
 
       {/* Hero Section */}
-      <div className="bg-slate-900 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden ring-1 ring-slate-800">
+      <div className="bg-slate-900 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden ring-1 ring-slate-800 isolate">
         <div className="absolute top-0 right-0 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -ml-20 -mb-20 pointer-events-none"></div>
 
-        <div className="relative z-10">
+        <div className="relative z-0">
           <div className="text-emerald-400 font-bold tracking-wider text-sm md:text-base uppercase mb-2 flex items-center gap-2">
             <Activity size={20} /> AIRFARE PRICE INDEX
           </div>
@@ -186,7 +186,7 @@ export default function OverviewScreen() {
         {/* Right Column: Pipeline Engine */}
         <div className="space-y-6">
 
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full isolate">
             <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 flex items-center justify-between">
               <h3 className="font-semibold text-slate-800">Pipeline Engine</h3>
               <Link to="/monitor" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full transition-colors">
@@ -199,7 +199,7 @@ export default function OverviewScreen() {
                 {/* Pipeline visual line */}
                 <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-slate-100 rounded-full z-0"></div>
 
-                <div className="space-y-6 relative z-10">
+                <div className="space-y-6 relative">
                   {/* Step 1 */}
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200 flex flex-col items-center justify-center shrink-0 shadow-sm text-slate-500 font-medium z-10">

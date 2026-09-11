@@ -36,7 +36,7 @@ function Sidebar() {
   ];
 
   return (
-    <div className="w-64 bg-slate-900 h-screen fixed top-0 left-0 text-slate-300 flex flex-col z-20">
+    <div className="w-64 bg-slate-900 h-screen fixed top-0 left-0 text-slate-300 flex flex-col z-50">
       <div className="p-6">
         <h2 className="text-xl font-bold text-white flex items-center gap-2">
           <span className="text-emerald-400">✈</span> Airfare India
@@ -46,7 +46,7 @@ function Sidebar() {
         </div>
       </div>
       <nav className="flex-1 py-4 overflow-y-auto">
-        <div className="px-6 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Main</div>
+        <div className="px-6 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">MAIN</div>
         {mainLinks.map((link) => (
           <NavLink
             key={link.to}
@@ -63,7 +63,7 @@ function Sidebar() {
           </NavLink>
         ))}
 
-        <div className="px-6 mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-500">System</div>
+        <div className="px-6 mb-2 mt-6 text-xs font-semibold uppercase tracking-wider text-slate-500">SYSTEM</div>
         {systemLinks.map((link) => (
           <NavLink
             key={link.to}
@@ -115,7 +115,7 @@ function TopBar({ presentationMode, setPresentationMode }) {
   };
 
   return (
-    <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-10 w-full shadow-sm">
+    <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-40 w-full shadow-sm">
       <h1 className="text-lg font-semibold text-slate-800 tracking-tight">Real-time Airfare Price Intelligence</h1>
       <div className="flex items-center gap-6">
         <button
