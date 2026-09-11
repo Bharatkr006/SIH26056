@@ -13,20 +13,24 @@ def format_rupees(x, pos):
     """Format tick labels with Rupee symbol and commas."""
     return f"₹{int(x):,}"
 
-def run():
-    print(f"\n[*] Generating charts...")
+def run(data=None):
+    print("\n[*] Generating charts...")
 
-    if not os.path.exists(config.LAST_RUN_RESULTS_FILE):
-        print(f"[!] {config.LAST_RUN_RESULTS_FILE} not found. Cannot generate chart.")
-        return
-
-    with open(config.LAST_RUN_RESULTS_FILE, "r") as f:
-        data = json.load(f)
+    if data is None:
+        if not os.path.exists(config.LAST_RUN_RESULTS_FILE):
+            print(f"[!] {config.LAST_RUN_RESULTS_FILE} not found. Cannot generate chart.")
+            return
+        with open(config.LAST_RUN_RESULTS_FILE, "r") as f:
+            data = json.load(f)
 
     flights = data.get("flights", [])
     if not flights:
         print("[!] No flight data to chart.")
         return
+
+    route = data.get("route", f"{config.ORIGIN}-{config.DESTINATION}")
+    lead_time = data.get("lead_time", f"T+{config.LEAD_DAYS}").replace("+", "")
+    chart_output_file = f"{config.OUTPUT_DIR}/fare_chart_{route}_{lead_time}.png"
 
     stats = data["stats"]
     outliers = data.get("outliers", [])
@@ -65,7 +69,7 @@ def run():
     ax1.axvline(x=baseline, color='#10b981', linestyle='--', linewidth=2,
                 label=f'Fixed Baseline (₹{baseline:,.0f})')
 
-    ax1.set_title(f"Fare Distribution ({config.ORIGIN}→{config.DESTINATION} T+{config.LEAD_DAYS})",
+    ax1.set_title(f"Fare Distribution ({route} T{lead_time})",
                   fontweight='bold', pad=15)
     ax1.set_xlabel("Total Fare")
     ax1.set_ylabel("Number of Flights")
@@ -113,10 +117,14 @@ def run():
     plt.tight_layout(pad=2.0)
 
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-    plt.savefig(config.CHART_FILE, dpi=150, bbox_inches='tight')
+    plt.savefig(chart_output_file, dpi=150, bbox_inches='tight')
     plt.close()
 
-    print(f"    [OK] Saved chart to {config.CHART_FILE}")
+    # Create legacy symlink or copy for backward comp
+    import shutil
+    shutil.copy(chart_output_file, config.CHART_FILE)
+
+    print(f"    [OK] Saved chart to {chart_output_file}")
 
 if __name__ == "__main__":
     run()

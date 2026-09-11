@@ -650,13 +650,15 @@ def main():
         # Generate visualizations (use legacy result for chart compatibility)
         try:
             import generate_chart
-            generate_chart.run()
+            for r in all_results:
+                generate_chart.run(r)
         except Exception as e:
             print(f"[!] Failed to generate chart: {e}")
 
         try:
             import generate_report
-            generate_report.run()
+            for r in all_results:
+                generate_report.run(r)
         except Exception as e:
             print(f"[!] Failed to generate HTML report: {e}")
 

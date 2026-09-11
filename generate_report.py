@@ -354,15 +354,21 @@ def row_html(f, is_outlier=False):
         </tr>
     """
 
-def run():
-    print(f"\n[*] Generating HTML report...")
+def run(data=None):
+    print("\n[*] Generating HTML report...")
 
-    if not os.path.exists(config.LAST_RUN_RESULTS_FILE):
-        print(f"[!] {config.LAST_RUN_RESULTS_FILE} not found. Cannot generate report.")
-        return
+    if data is None:
+        if not os.path.exists(config.LAST_RUN_RESULTS_FILE):
+            print(f"[!] {config.LAST_RUN_RESULTS_FILE} not found. Cannot generate report.")
+            return
 
-    with open(config.LAST_RUN_RESULTS_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        with open(config.LAST_RUN_RESULTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+    route = data.get("route", f"{config.ORIGIN}-{config.DESTINATION}")
+    lead = data.get("lead_time", f"T+{config.LEAD_DAYS}").replace("T+", "")
+    report_output_file = f"{config.OUTPUT_DIR}/report_{route}_T{lead}.html"
+    chart_output_file = f"{config.OUTPUT_DIR}/fare_chart_{route}_T{lead}.png"
 
     stats = data["stats"]
     pipe = data["pipeline"]
@@ -381,8 +387,9 @@ def run():
 
     # 2. Embed Chart (Base64)
     chart_html = '<div style="padding: 2rem; text-align: center; color: #64748b;">Chart generation failed or pending.</div>'
-    if os.path.exists(config.CHART_FILE):
-        with open(config.CHART_FILE, "rb") as cfile:
+    target_chart = chart_output_file if os.path.exists(chart_output_file) else config.CHART_FILE
+    if os.path.exists(target_chart):
+        with open(target_chart, "rb") as cfile:
             b64 = base64.b64encode(cfile.read()).decode('utf-8')
             chart_html = f'<img src="data:image/png;base64,{b64}" class="chart-img" alt="Fare Charts">'
 
@@ -398,8 +405,8 @@ def run():
 
     # 4. Render Template
     html = HTML_TEMPLATE.format(
-        route=f"{config.ORIGIN}&rarr;{config.DESTINATION}",
-        lead=config.LEAD_DAYS,
+        route=route.replace("-", "&rarr;"),
+        lead=lead,
         run_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         source=config.SOURCE_NAME,
 
@@ -422,10 +429,13 @@ def run():
         table_rows="\n".join(rows)
     )
 
-    with open(config.HTML_REPORT_FILE, "w", encoding="utf-8") as f:
+    with open(report_output_file, "w", encoding="utf-8") as f:
         f.write(html)
 
-    print(f"    [OK] Saved rich HTML report to {config.HTML_REPORT_FILE}")
+    import shutil
+    shutil.copy(report_output_file, config.HTML_REPORT_FILE)
+
+    print(f"    [OK] Saved rich HTML report to {report_output_file}")
 
 if __name__ == "__main__":
     run()
